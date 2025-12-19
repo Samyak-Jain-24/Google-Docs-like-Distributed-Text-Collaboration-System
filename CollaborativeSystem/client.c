@@ -1,0 +1,971 @@
+#include "common.h"
+
+// Global variables
+char username[MAX_USERNAME];
+int nm_socket = -1;
+static char nm_host_ip[INET_ADDRSTRLEN] = "127.0.0.1";
+static int nm_host_port = PORT_NM;
+
+// Function prototypes
+void connect_to_nm();
+void register_with_nm();
+void handle_view_command(char* command);
+void handle_read_command(char* command);
+void handle_create_command(char* command);
+void handle_write_command(char* command);
+void handle_delete_command(char* command);
+void handle_info_command(char* command);
+void handle_stream_command(char* command);
+void handle_list_command();
+void handle_addaccess_command(char* command);
+void handle_remaccess_command(char* command);
+void handle_exec_command(char* command);
+void handle_undo_command(char* command);
+int connect_to_ss(const char* ss_ip, int ss_port);
+
+// Bonus command handlers (prototypes)
+void handle_createfolder_command(char* command);
+void handle_viewfolder_command(char* command);
+void handle_move_command(char* command);
+void handle_recents_command();
+void handle_reqaccess_command(char* command);
+void handle_viewrequests_command(char* command);
+void handle_approve_command(char* command);
+void handle_deny_command(char* command);
+void handle_checkpoint_command(char* command);
+void handle_viewcheckpoint_command(char* command);
+void handle_listcheckpoints_command(char* command);
+void handle_revert_command(char* command);
+void handle_help_command();
+
+int main(int argc, char* argv[]) {
+    printf("=== LangOS Distributed File System - Client ===\n");
+    
+    // Optional args: ./client <nm_ip> [nm_port]
+    if (argc >= 2) {
+        strncpy(nm_host_ip, argv[1], sizeof(nm_host_ip) - 1);
+        nm_host_ip[sizeof(nm_host_ip) - 1] = '\0';
+    }
+    if (argc >= 3) {
+        nm_host_port = atoi(argv[2]);
+        if (nm_host_port <= 0) nm_host_port = PORT_NM;
+    }
+    
+    // Get username
+    printf("Enter your username: ");
+    if (fgets(username, sizeof(username), stdin) == NULL) {
+        fprintf(stderr, "Failed to read username\n");
+        exit(EXIT_FAILURE);
+    }
+    username[strcspn(username, "\n")] = 0;  // Remove newline
+    
+    printf("Welcome, %s!\n", username);
+    log_message("CLIENT", "INFO", "User %s logged in", username);
+    
+    // Connect and register with Name Server
+    connect_to_nm();
+    register_with_nm();
+    
+    printf("\nName Server: %s:%d\n", nm_host_ip, nm_host_port);
+    printf("\nAvailable commands:\n");
+    printf("  VIEW [-a] [-l] [-al]\n");
+    printf("  READ <filename>\n");
+    printf("  CREATE <filename>\n");
+    printf("  CREATEFOLDER <folder>\n");
+    printf("  WRITE <filename> <sentence_number>\n");
+    printf("  DELETE <filename>\n");
+    printf("  INFO <filename>\n");
+    printf("  STREAM <filename>\n");
+    printf("  VIEWFOLDER <folder>\n");
+    printf("  MOVE <filename> <folder>\n");
+    printf("  LIST\n");
+    printf("  ADDACCESS -R/-W <filename> <username>\n");
+    printf("  REMACCESS <filename> <username>\n");
+    printf("  EXEC <filename>\n");
+    printf("  UNDO <filename>\n");
+    printf("  REQACCESS -R/-W <filename>\n");
+    printf("  VIEWREQUESTS <filename>\n");
+    printf("  APPROVE [-W] <filename> <username>\n");
+    printf("  DENY <filename> <username>\n");
+    printf("  RECENTS\n");
+    printf("  CHECKPOINT <filename> <tag>\n");
+    printf("  VIEWCHECKPOINT <filename> <tag>\n");
+    printf("  LISTCHECKPOINTS <filename>\n");
+    printf("  REVERT <filename> <tag>\n");
+    printf("  HELP\n");
+    printf("  EXIT\n\n");
+    
+    // Command loop
+    char command[MAX_COMMAND];
+    while (1) {
+        printf("%s> ", username);
+        fflush(stdout);
+        
+        if (fgets(command, sizeof(command), stdin) == NULL) {
+            break;
+        }
+        
+        command[strcspn(command, "\n")] = 0;  // Remove newline
+        
+        if (strlen(command) == 0) {
+            continue;
+        }
+        
+        // Tokenize first word for precise matching
+        char cmd_copy[MAX_COMMAND]; strncpy(cmd_copy, command, sizeof(cmd_copy)-1); cmd_copy[sizeof(cmd_copy)-1]='\0';
+        char* first = strtok(cmd_copy, " \t");
+        if (!first) continue;
+        if (strcasecmp(first, "VIEW") == 0) {
+            handle_view_command(command);
+        } else if (strcasecmp(first, "READ") == 0) {
+            handle_read_command(command);
+        } else if (strcasecmp(first, "CREATEFOLDER") == 0) {
+            handle_createfolder_command(command);
+        } else if (strcasecmp(first, "CREATE") == 0) {
+            handle_create_command(command);
+        } else if (strcasecmp(first, "WRITE") == 0) {
+            handle_write_command(command);
+        } else if (strcasecmp(first, "DELETE") == 0) {
+            handle_delete_command(command);
+        } else if (strcasecmp(first, "INFO") == 0) {
+            handle_info_command(command);
+        } else if (strcasecmp(first, "STREAM") == 0) {
+            handle_stream_command(command);
+        } else if (strcasecmp(first, "VIEWFOLDER") == 0) {
+            handle_viewfolder_command(command);
+        } else if (strcasecmp(first, "MOVE") == 0) {
+            handle_move_command(command);
+        } else if (strcasecmp(first, "LIST") == 0) {
+            handle_list_command();
+        } else if (strcasecmp(first, "ADDACCESS") == 0) {
+            handle_addaccess_command(command);
+        } else if (strcasecmp(first, "REMACCESS") == 0) {
+            handle_remaccess_command(command);
+        } else if (strcasecmp(first, "REQACCESS") == 0) {
+            handle_reqaccess_command(command);
+        } else if (strcasecmp(first, "VIEWREQUESTS") == 0) {
+            handle_viewrequests_command(command);
+        } else if (strcasecmp(first, "APPROVE") == 0) {
+            handle_approve_command(command);
+        } else if (strcasecmp(first, "DENY") == 0) {
+            handle_deny_command(command);
+        } else if (strcasecmp(first, "RECENTS") == 0) {
+            handle_recents_command();
+        } else if (strcasecmp(first, "CHECKPOINT") == 0) {
+            handle_checkpoint_command(command);
+        } else if (strcasecmp(first, "VIEWCHECKPOINT") == 0) {
+            handle_viewcheckpoint_command(command);
+        } else if (strcasecmp(first, "LISTCHECKPOINTS") == 0) {
+            handle_listcheckpoints_command(command);
+        } else if (strcasecmp(first, "REVERT") == 0) {
+            handle_revert_command(command);
+        } else if (strcasecmp(first, "EXEC") == 0) {
+            handle_exec_command(command);
+        } else if (strcasecmp(first, "UNDO") == 0) {
+            handle_undo_command(command);
+        } else if (strcasecmp(first, "HELP") == 0) {   // Add: HELP command
+            handle_help_command();
+        } else if (strcasecmp(first, "EXIT") == 0) {
+            printf("Goodbye!\n");
+            break;
+        } else {
+            printf("Unknown command. Type 'EXIT' to quit.\n");
+        }
+    }
+    
+    if (nm_socket >= 0) {
+        close(nm_socket);
+    }
+    
+    return 0;
+}
+
+void connect_to_nm() {
+    nm_socket = create_socket();
+    if (nm_socket < 0) {
+        fprintf(stderr, "Failed to create socket\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    struct sockaddr_in nm_addr;
+    nm_addr.sin_family = AF_INET;
+    nm_addr.sin_port = htons(nm_host_port);
+    inet_pton(AF_INET, nm_host_ip, &nm_addr.sin_addr);
+    
+    if (connect(nm_socket, (struct sockaddr*)&nm_addr, sizeof(nm_addr)) < 0) {
+        perror("Failed to connect to Name Server");
+        fprintf(stderr, "Make sure the Name Server is running.\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Connected to Name Server.\n");
+}
+
+void register_with_nm() {
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_REGISTER_CLIENT;
+    strcpy(msg.username, username);
+    // For now, advertise placeholder client ports; NM doesn't open connections back to client in this design
+    sprintf(msg.data, "%s %d %d", "0.0.0.0", PORT_CLIENT_BASE, PORT_CLIENT_BASE + 1);
+    
+    if (send_message(nm_socket, &msg) < 0) {
+        fprintf(stderr, "Failed to send registration\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (receive_message(nm_socket, &msg) < 0) {
+        fprintf(stderr, "Failed to receive registration response\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("Successfully registered with Name Server.\n");
+    } else {
+        fprintf(stderr, "Registration failed: %s\n", msg.error_msg);
+        exit(EXIT_FAILURE);
+    }
+}
+
+void handle_view_command(char* command) {
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_VIEW;
+    strcpy(msg.username, username);
+    msg.flags = 0;
+    
+    // Parse flags robustly: support "-a -l", "-al", "-la" (any order)
+    // Tokenize after the "VIEW" keyword and accumulate flags character-by-character
+    char cmd_copy[MAX_COMMAND];
+    strncpy(cmd_copy, command, sizeof(cmd_copy) - 1);
+    cmd_copy[sizeof(cmd_copy) - 1] = '\0';
+    
+    char* saveptr = NULL;
+    char* token = strtok_r(cmd_copy, " \t", &saveptr);
+    // First token is "VIEW"
+    if (token != NULL) {
+        token = strtok_r(NULL, " \t", &saveptr);
+    }
+    while (token != NULL) {
+        if (token[0] == '-') {
+            for (size_t i = 1; token[i] != '\0'; i++) {
+                if (token[i] == 'a' || token[i] == 'A') {
+                    msg.flags |= 1; // -a flag
+                } else if (token[i] == 'l' || token[i] == 'L') {
+                    msg.flags |= 2; // -l flag
+                }
+                // ignore unknown flags gracefully
+            }
+        }
+        token = strtok_r(NULL, " \t", &saveptr);
+    }
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("%s", msg.data);
+    } else {
+        print_error(msg.error_code, "VIEW");
+    }
+}
+
+void handle_read_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "READ %s", filename) != 1) {
+        printf("Usage: READ <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_READ;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "READ");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        return;
+    }
+    
+    // Connect to storage server
+    char ss_ip[INET_ADDRSTRLEN];
+    int ss_port;
+    sscanf(msg.data, "%s %d", ss_ip, &ss_port);
+    
+    int ss_sock = connect_to_ss(ss_ip, ss_port);
+    if (ss_sock < 0) {
+        fprintf(stderr, "Failed to connect to storage server\n");
+        return;
+    }
+    
+    // Request file content
+    memset(&msg, 0, sizeof(Message));
+    msg.op_code = OP_READ;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(ss_sock, &msg);
+    receive_message(ss_sock, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("%s\n", msg.data);
+    } else {
+        print_error(msg.error_code, "READ");
+    }
+    
+    close(ss_sock);
+}
+
+void handle_create_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "CREATE %s", filename) != 1) {
+        printf("Usage: CREATE <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_CREATE;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("File Created Successfully!\n");
+    } else {
+        print_error(msg.error_code, "CREATE");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+    }
+}
+
+void handle_write_command(char* command) {
+    char filename[MAX_FILENAME];
+    int sentence_number;
+    
+    if (sscanf(command, "WRITE %s %d", filename, &sentence_number) != 2) {
+        printf("Usage: WRITE <filename> <sentence_number>\n");
+        return;
+    }
+    
+    // Get SS connection info from NM
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_WRITE;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    msg.sentence_number = sentence_number;
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "WRITE");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        return;
+    }
+    
+    // Connect to storage server
+    char ss_ip[INET_ADDRSTRLEN];
+    int ss_port;
+    sscanf(msg.data, "%s %d", ss_ip, &ss_port);
+    
+    // Phase 1: Lock the sentence
+    int ss_sock = connect_to_ss(ss_ip, ss_port);
+    if (ss_sock < 0) {
+        fprintf(stderr, "Failed to connect to storage server\n");
+        return;
+    }
+    
+    memset(&msg, 0, sizeof(Message));
+    msg.op_code = OP_LOCK_SENTENCE;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    msg.sentence_number = sentence_number;
+    
+    send_message(ss_sock, &msg);
+    receive_message(ss_sock, &msg);
+    
+    close(ss_sock);  // Close after lock operation
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "LOCK");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        return;
+    }
+    
+    printf("Sentence %d locked successfully!\n", sentence_number);
+    
+    // Phase 2: Collect write operations
+    char write_data[MAX_CONTENT] = "";
+    char line[MAX_COMMAND];
+    
+    printf("Enter write commands (format: <word_index> <content>)\n");
+    printf("Type ETIRW when done:\n");
+    
+    while (1) {
+        printf("Client: ");
+        fflush(stdout);
+        
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            break;
+        }
+        
+        line[strcspn(line, "\n")] = 0;
+        
+        if (strcmp(line, "ETIRW") == 0) {
+            break;
+        }
+        
+        strcat(write_data, line);
+        strcat(write_data, "\n");
+    }
+    
+    // Phase 3: Send write request - reconnect to storage server
+    ss_sock = connect_to_ss(ss_ip, ss_port);
+    if (ss_sock < 0) {
+        fprintf(stderr, "Failed to connect to storage server for write\n");
+        // Try to unlock anyway
+        ss_sock = connect_to_ss(ss_ip, ss_port);
+        if (ss_sock >= 0) {
+            memset(&msg, 0, sizeof(Message));
+            msg.op_code = OP_UNLOCK_SENTENCE;
+            strcpy(msg.username, username);
+            strcpy(msg.filename, filename);
+            msg.sentence_number = sentence_number;
+            send_message(ss_sock, &msg);
+            receive_message(ss_sock, &msg);
+            close(ss_sock);
+        }
+        return;
+    }
+    
+    memset(&msg, 0, sizeof(Message));
+    msg.op_code = OP_WRITE;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    msg.sentence_number = sentence_number;
+    strcpy(msg.data, write_data);
+    
+    send_message(ss_sock, &msg);
+    receive_message(ss_sock, &msg);
+    
+    close(ss_sock);  // Close after write operation
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "WRITE");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        // Still need to unlock even if write failed
+    } else {
+        printf("Write Successful!\n");
+    }
+    
+    // Phase 4: Unlock the sentence - reconnect to storage server
+    ss_sock = connect_to_ss(ss_ip, ss_port);
+    if (ss_sock < 0) {
+        fprintf(stderr, "Failed to connect to storage server for unlock\n");
+        return;
+    }
+    
+    memset(&msg, 0, sizeof(Message));
+    msg.op_code = OP_UNLOCK_SENTENCE;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    msg.sentence_number = sentence_number;
+    
+    send_message(ss_sock, &msg);
+    receive_message(ss_sock, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("Sentence unlocked!\n");
+    }
+    
+    close(ss_sock);  // Close after unlock operation
+}
+
+void handle_delete_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "DELETE %s", filename) != 1) {
+        printf("Usage: DELETE <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_DELETE;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("File '%s' deleted successfully!\n", filename);
+    } else {
+        print_error(msg.error_code, "DELETE");
+    }
+}
+
+void handle_info_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "INFO %s", filename) != 1) {
+        printf("Usage: INFO <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_INFO;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("%s\n", msg.data);
+    } else {
+        print_error(msg.error_code, "INFO");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+    }
+}
+
+void handle_help_command() {
+    printf("\nAvailable commands:\n");
+    printf("  VIEW [-a] [-l] [-al]\n");
+    printf("  READ <filename>\n");
+    printf("  CREATE <filename>\n");
+    printf("  CREATEFOLDER <folder>\n");
+    printf("  WRITE <filename> <sentence_number>\n");
+    printf("  DELETE <filename>\n");
+    printf("  INFO <filename>\n");
+    printf("  STREAM <filename>\n");
+    printf("  VIEWFOLDER <folder>\n");
+    printf("  MOVE <filename> <folder>\n");
+    printf("  LIST\n");
+    printf("  ADDACCESS -R/-W <filename> <username>\n");
+    printf("  REMACCESS <filename> <username>\n");
+    printf("  EXEC <filename>\n");
+    printf("  UNDO <filename>\n");
+    printf("  REQACCESS -R/-W <filename>\n");
+    printf("  VIEWREQUESTS <filename>\n");
+    printf("  APPROVE [-W] <filename> <username>\n");
+    printf("  DENY <filename> <username>\n");
+    printf("  RECENTS\n");
+    printf("  CHECKPOINT <filename> <tag>\n");
+    printf("  VIEWCHECKPOINT <filename> <tag>\n");
+    printf("  LISTCHECKPOINTS <filename>\n");
+    printf("  REVERT <filename> <tag>\n");
+    printf("  HELP\n");
+    printf("  EXIT\n\n");
+}
+
+void handle_stream_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "STREAM %s", filename) != 1) {
+        printf("Usage: STREAM <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_STREAM;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "STREAM");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        return;
+    }
+    
+    // Connect to storage server
+    char ss_ip[INET_ADDRSTRLEN];
+    int ss_port;
+    sscanf(msg.data, "%s %d", ss_ip, &ss_port);
+    
+    int ss_sock = connect_to_ss(ss_ip, ss_port);
+    if (ss_sock < 0) {
+        fprintf(stderr, "Failed to connect to storage server\n");
+        return;
+    }
+    
+    // Request stream
+    memset(&msg, 0, sizeof(Message));
+    msg.op_code = OP_STREAM;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(ss_sock, &msg);
+    receive_message(ss_sock, &msg);
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "STREAM");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        close(ss_sock);
+        return;
+    }
+    
+    // Receive words
+    while (1) {
+        memset(&msg, 0, sizeof(Message));
+        if (receive_message(ss_sock, &msg) <= 0) {
+            fprintf(stderr, "\nERROR: Storage server disconnected\n");
+            break;
+        }
+        
+        if (strcmp(msg.data, "STOP") == 0) {
+            printf("\n");
+            break;
+        }
+        
+        printf("%s ", msg.data);
+        fflush(stdout);
+    }
+    
+    close(ss_sock);
+}
+
+void handle_list_command() {
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_LIST;
+    strcpy(msg.username, username);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("%s", msg.data);
+    } else {
+        print_error(msg.error_code, "LIST");
+    }
+}
+
+void handle_addaccess_command(char* command) {
+    char flag[8], filename[MAX_FILENAME], target_user[MAX_USERNAME];
+    
+    if (sscanf(command, "ADDACCESS %s %s %s", flag, filename, target_user) != 3) {
+        printf("Usage: ADDACCESS -R/-W <filename> <username>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_ADDACCESS;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    strcpy(msg.data, target_user);
+    msg.flags = (strcmp(flag, "-W") == 0) ? 1 : 0;
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("Access granted successfully!\n");
+    } else {
+        print_error(msg.error_code, "ADDACCESS");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+    }
+}
+
+void handle_remaccess_command(char* command) {
+    char filename[MAX_FILENAME], target_user[MAX_USERNAME];
+    
+    if (sscanf(command, "REMACCESS %s %s", filename, target_user) != 2) {
+        printf("Usage: REMACCESS <filename> <username>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_REMACCESS;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    strcpy(msg.data, target_user);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("Access removed successfully!\n");
+    } else {
+        print_error(msg.error_code, "REMACCESS");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+    }
+}
+
+void handle_exec_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "EXEC %s", filename) != 1) {
+        printf("Usage: EXEC <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_EXEC;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("%s", msg.data);
+    } else {
+        print_error(msg.error_code, "EXEC");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+    }
+}
+
+void handle_undo_command(char* command) {
+    char filename[MAX_FILENAME];
+    if (sscanf(command, "UNDO %s", filename) != 1) {
+        printf("Usage: UNDO <filename>\n");
+        return;
+    }
+    
+    Message msg;
+    memset(&msg, 0, sizeof(Message));
+    
+    msg.op_code = OP_UNDO;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(nm_socket, &msg);
+    receive_message(nm_socket, &msg);
+    
+    if (msg.error_code != ERR_SUCCESS) {
+        print_error(msg.error_code, "UNDO");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+        return;
+    }
+    
+    // Connect to storage server
+    char ss_ip[INET_ADDRSTRLEN];
+    int ss_port;
+    sscanf(msg.data, "%s %d", ss_ip, &ss_port);
+    
+    int ss_sock = connect_to_ss(ss_ip, ss_port);
+    if (ss_sock < 0) {
+        fprintf(stderr, "Failed to connect to storage server\n");
+        return;
+    }
+    
+    // Request undo
+    memset(&msg, 0, sizeof(Message));
+    msg.op_code = OP_UNDO;
+    strcpy(msg.username, username);
+    strcpy(msg.filename, filename);
+    
+    send_message(ss_sock, &msg);
+    receive_message(ss_sock, &msg);
+    
+    if (msg.error_code == ERR_SUCCESS) {
+        printf("Undo Successful!\n");
+    } else {
+        print_error(msg.error_code, "UNDO");
+        if (msg.error_msg[0] != '\0') {
+            fprintf(stderr, "Details: %s\n", msg.error_msg);
+        }
+    }
+    
+    close(ss_sock);
+}
+
+int connect_to_ss(const char* ss_ip, int ss_port) {
+    int sock = create_socket();
+    if (sock < 0) {
+        return -1;
+    }
+    
+    struct sockaddr_in ss_addr;
+    ss_addr.sin_family = AF_INET;
+    ss_addr.sin_port = htons(ss_port);
+    inet_pton(AF_INET, ss_ip, &ss_addr.sin_addr);
+    
+    if (connect(sock, (struct sockaddr*)&ss_addr, sizeof(ss_addr)) < 0) {
+        close(sock);
+        return -1;
+    }
+    
+    return sock;
+}
+
+// === Bonus command implementations ===
+void handle_createfolder_command(char* command) {
+    char folder[MAX_FILENAME];
+    if (sscanf(command, "CREATEFOLDER %255s", folder) != 1) {
+        printf("Usage: CREATEFOLDER <folder>\n"); return;
+    }
+    Message msg; memset(&msg,0,sizeof(msg));
+    msg.op_code = OP_CREATEFOLDER; strcpy(msg.username, username); strncpy(msg.filename, folder, sizeof(msg.filename)-1);
+    send_message(nm_socket, &msg); receive_message(nm_socket, &msg);
+    if (msg.error_code == ERR_SUCCESS) printf("%s\n", msg.data[0]?msg.data:"Folder Created Successfully!\n"); else print_error(msg.error_code, "CREATEFOLDER");
+}
+
+void handle_viewfolder_command(char* command) {
+    char folder[MAX_FILENAME];
+    if (sscanf(command, "VIEWFOLDER %255s", folder) != 1) { printf("Usage: VIEWFOLDER <folder>\n"); return; }
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_VIEWFOLDER; strcpy(msg.username, username); strncpy(msg.filename, folder, sizeof(msg.filename)-1);
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s", msg.data); else print_error(msg.error_code, "VIEWFOLDER");
+}
+
+void handle_move_command(char* command) {
+    char filename[MAX_FILENAME], folder[MAX_FILENAME];
+    if (sscanf(command, "MOVE %255s %255s", filename, folder) != 2) { printf("Usage: MOVE <filename> <folder>\n"); return; }
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_MOVE; strcpy(msg.username, username); strncpy(msg.filename, filename, sizeof(msg.filename)-1); strncpy(msg.data, folder, sizeof(msg.data)-1);
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s\n", msg.data); else print_error(msg.error_code, "MOVE");
+}
+
+void handle_recents_command() {
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_RECENTS; strcpy(msg.username, username);
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s", msg.data); else print_error(msg.error_code, "RECENTS");
+}
+
+void handle_reqaccess_command(char* command) {
+    char filename[MAX_FILENAME]; char flagstr[8];
+    // Accept forms: REQACCESS -R filename | REQACCESS -W filename
+    int hasFlag = sscanf(command, "REQACCESS %7s %255s", flagstr, filename);
+    if (hasFlag != 2 || (strcmp(flagstr, "-R")!=0 && strcmp(flagstr, "-W")!=0)) { printf("Usage: REQACCESS -R/-W <filename>\n"); return; }
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_REQACCESS; strcpy(msg.username, username); strncpy(msg.filename, filename, sizeof(msg.filename)-1);
+    if (strcmp(flagstr, "-W") == 0) msg.flags |= 1; // reuse bit 1 for write request
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s\n", msg.data); else print_error(msg.error_code, "REQACCESS");
+}
+
+void handle_viewrequests_command(char* command) {
+    char filename[MAX_FILENAME]; if (sscanf(command, "VIEWREQUESTS %255s", filename)!=1){ printf("Usage: VIEWREQUESTS <filename>\n"); return; }
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_VIEWREQUESTS; strcpy(msg.username, username); strncpy(msg.filename, filename, sizeof(msg.filename)-1);
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s", msg.data); else print_error(msg.error_code, "VIEWREQUESTS");
+}
+
+void handle_approve_command(char* command) {
+    char filename[MAX_FILENAME], user[MAX_USERNAME]; char flag[8];
+    // APPROVE [-W] filename user
+    int parts = sscanf(command, "APPROVE %7s %255s %63s", flag, filename, user);
+    int writeOverride = 0;
+    if (parts == 3 && strcmp(flag, "-W") == 0) {
+        // Provided override flag
+        writeOverride = 1;
+    } else if (parts == 2) { // Without -W we parsed filename into flag variable; shift
+        // Re-parse without flag
+        if (sscanf(command, "APPROVE %255s %63s", filename, user) != 2) { printf("Usage: APPROVE [-W] <filename> <username>\n"); return; }
+    } else if (parts != 3) {
+        printf("Usage: APPROVE [-W] <filename> <username>\n"); return;
+    }
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_APPROVE; strcpy(msg.username, username); strncpy(msg.filename, filename, sizeof(msg.filename)-1); strncpy(msg.data, user, sizeof(msg.data)-1);
+    if (writeOverride) msg.flags |= 1;
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s\n", msg.data); else print_error(msg.error_code, "APPROVE");
+}
+
+void handle_deny_command(char* command) {
+    char filename[MAX_FILENAME], user[MAX_USERNAME];
+    if (sscanf(command, "DENY %255s %63s", filename, user) != 2) { printf("Usage: DENY <filename> <username>\n"); return; }
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code=OP_DENY; strcpy(msg.username, username); strncpy(msg.filename, filename, sizeof(msg.filename)-1); strncpy(msg.data, user, sizeof(msg.data)-1);
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code==ERR_SUCCESS) printf("%s\n", msg.data); else print_error(msg.error_code, "DENY");
+}
+
+// Helper to get SS connection for a file-based op
+static int fetch_ss_conn(int op_code, const char* filename, const char* extra, Message* out_ss_info) {
+    Message msg; memset(&msg,0,sizeof(msg)); msg.op_code = op_code; strcpy(msg.username, username); strncpy(msg.filename, filename, sizeof(msg.filename)-1);
+    if (extra) strncpy(msg.data, extra, sizeof(msg.data)-1);
+    send_message(nm_socket,&msg); receive_message(nm_socket,&msg);
+    if (msg.error_code != ERR_SUCCESS) { *out_ss_info = msg; return -1; }
+    *out_ss_info = msg; return 0;
+}
+
+void handle_checkpoint_command(char* command) {
+    char filename[MAX_FILENAME], tag[MAX_FILENAME];
+    if (sscanf(command, "CHECKPOINT %255s %255s", filename, tag) != 2) { printf("Usage: CHECKPOINT <filename> <tag>\n"); return; }
+    Message ssinfo; if (fetch_ss_conn(OP_CHECKPOINT, filename, NULL, &ssinfo) != 0) { print_error(ssinfo.error_code, "CHECKPOINT"); return; }
+    char ss_ip[INET_ADDRSTRLEN]; int ss_port; sscanf(ssinfo.data, "%15s %d", ss_ip, &ss_port);
+    int ss_sock = connect_to_ss(ss_ip, ss_port); if (ss_sock < 0) { fprintf(stderr,"Failed to connect to storage server\n"); return; }
+    Message m; memset(&m,0,sizeof(m)); m.op_code=OP_CHECKPOINT; strcpy(m.username, username); strncpy(m.filename, filename, sizeof(m.filename)-1); strncpy(m.data, tag, sizeof(m.data)-1);
+    send_message(ss_sock,&m); receive_message(ss_sock,&m); close(ss_sock);
+    if (m.error_code==ERR_SUCCESS) printf("Checkpoint saved: %s\n", tag); else print_error(m.error_code, "CHECKPOINT");
+}
+
+void handle_viewcheckpoint_command(char* command) {
+    char filename[MAX_FILENAME], tag[MAX_FILENAME];
+    if (sscanf(command, "VIEWCHECKPOINT %255s %255s", filename, tag) != 2) { printf("Usage: VIEWCHECKPOINT <filename> <tag>\n"); return; }
+    Message ssinfo; if (fetch_ss_conn(OP_VIEWCHECKPOINT, filename, NULL, &ssinfo) != 0) { print_error(ssinfo.error_code, "VIEWCHECKPOINT"); return; }
+    char ss_ip[INET_ADDRSTRLEN]; int ss_port; sscanf(ssinfo.data, "%15s %d", ss_ip, &ss_port);
+    int ss_sock = connect_to_ss(ss_ip, ss_port); if (ss_sock < 0) { fprintf(stderr,"Failed to connect to storage server\n"); return; }
+    Message m; memset(&m,0,sizeof(m)); m.op_code=OP_VIEWCHECKPOINT; strcpy(m.username, username); strncpy(m.filename, filename, sizeof(m.filename)-1); strncpy(m.data, tag, sizeof(m.data)-1);
+    send_message(ss_sock,&m); receive_message(ss_sock,&m); close(ss_sock);
+    if (m.error_code==ERR_SUCCESS) printf("%s", m.data); else print_error(m.error_code, "VIEWCHECKPOINT");
+}
+
+void handle_listcheckpoints_command(char* command) {
+    char filename[MAX_FILENAME]; if (sscanf(command, "LISTCHECKPOINTS %255s", filename)!=1){ printf("Usage: LISTCHECKPOINTS <filename>\n"); return; }
+    Message ssinfo; if (fetch_ss_conn(OP_LISTCHECKPOINTS, filename, NULL, &ssinfo)!=0){ print_error(ssinfo.error_code, "LISTCHECKPOINTS"); return; }
+    char ss_ip[INET_ADDRSTRLEN]; int ss_port; sscanf(ssinfo.data, "%15s %d", ss_ip, &ss_port);
+    int ss_sock = connect_to_ss(ss_ip, ss_port); if (ss_sock < 0) { fprintf(stderr,"Failed to connect to storage server\n"); return; }
+    Message m; memset(&m,0,sizeof(m)); m.op_code=OP_LISTCHECKPOINTS; strcpy(m.username, username); strncpy(m.filename, filename, sizeof(m.filename)-1);
+    send_message(ss_sock,&m); receive_message(ss_sock,&m); close(ss_sock);
+    if (m.error_code==ERR_SUCCESS) printf("%s", m.data); else print_error(m.error_code, "LISTCHECKPOINTS");
+}
+
+void handle_revert_command(char* command) {
+    char filename[MAX_FILENAME], tag[MAX_FILENAME];
+    if (sscanf(command, "REVERT %255s %255s", filename, tag) != 2) { printf("Usage: REVERT <filename> <tag>\n"); return; }
+    Message ssinfo; if (fetch_ss_conn(OP_REVERT, filename, NULL, &ssinfo) != 0) { print_error(ssinfo.error_code, "REVERT"); return; }
+    char ss_ip[INET_ADDRSTRLEN]; int ss_port; sscanf(ssinfo.data, "%15s %d", ss_ip, &ss_port);
+    int ss_sock = connect_to_ss(ss_ip, ss_port); if (ss_sock < 0) { fprintf(stderr,"Failed to connect to storage server\n"); return; }
+    Message m; memset(&m,0,sizeof(m)); m.op_code=OP_REVERT; strcpy(m.username, username); strncpy(m.filename, filename, sizeof(m.filename)-1); strncpy(m.data, tag, sizeof(m.data)-1);
+    send_message(ss_sock,&m); receive_message(ss_sock,&m); close(ss_sock);
+    if (m.error_code==ERR_SUCCESS) printf("Reverted to checkpoint %s\n", tag); else print_error(m.error_code, "REVERT");
+}
