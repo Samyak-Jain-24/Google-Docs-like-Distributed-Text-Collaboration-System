@@ -191,3 +191,5 @@ void trie_free(TrieNode* root);
 #define FLAG_REPL 0x100
 
 #endif // COMMON_H
+
+// Added networking protocol definitions
