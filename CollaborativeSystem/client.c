@@ -969,3 +969,5 @@ void handle_revert_command(char* command) {
     send_message(ss_sock,&m); receive_message(ss_sock,&m); close(ss_sock);
     if (m.error_code==ERR_SUCCESS) printf("Reverted to checkpoint %s\n", tag); else print_error(m.error_code, "REVERT");
 }
+
+// Enhanced client initialization flow
