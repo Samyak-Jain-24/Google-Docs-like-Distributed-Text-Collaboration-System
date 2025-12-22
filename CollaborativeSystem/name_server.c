@@ -1629,3 +1629,5 @@ static void purge_file_metadata(const char* filename) {
     // Persist immediately to avoid stale records after restart
     save_persistent_data();
 }
+
+// Optimize naming server routing
