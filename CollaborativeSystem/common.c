@@ -245,3 +245,5 @@ void trie_free(TrieNode* root) {
     
     free(root);
 }
+
+// Refactored common utility functions
