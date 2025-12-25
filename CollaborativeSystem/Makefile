@@ -52,3 +52,5 @@ run_client: client
 	./client
 
 .PHONY: all clean cleanall run_nm run_ss1 run_ss2 run_client
+
+# Added compiler optimization flags
