@@ -152,3 +152,5 @@ fi
 
 echo ""
 echo "Setup complete! Ready to launch the system."
+
+# Environment setup verified
