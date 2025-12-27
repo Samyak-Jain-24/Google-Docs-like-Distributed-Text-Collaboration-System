@@ -116,3 +116,5 @@ case $choice in
         exit 1
         ;;
 esac
+
+# Startup sequence optimized
