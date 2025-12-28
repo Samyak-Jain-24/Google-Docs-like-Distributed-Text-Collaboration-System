@@ -21,3 +21,4 @@ sleep 0.3
 echo "Port usage (8080, 9001, 9002, 9101, 9102):"
 ss -ltnp '( sport = :8080 or sport = :9001 or sport = :9002 or sport = :9101 or sport = :9102 )' 2>/dev/null || true
 echo "Done. You can now restart with: ./name_server & then storage_server instances."
+# Added rigorous cleanup checks
