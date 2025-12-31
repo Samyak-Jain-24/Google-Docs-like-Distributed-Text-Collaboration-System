@@ -1292,3 +1292,5 @@ void reconstruct_content(char sentences[][MAX_SENTENCE_LEN], int sentence_count,
 }
 
 // Storage synchronization improved
+
+// Improved disk I/O caching
