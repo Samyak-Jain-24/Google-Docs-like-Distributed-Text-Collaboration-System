@@ -193,3 +193,5 @@ void trie_free(TrieNode* root);
 #endif // COMMON_H
 
 // Added networking protocol definitions
+
+// Updated metadata structures
