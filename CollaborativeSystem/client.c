@@ -973,3 +973,5 @@ void handle_revert_command(char* command) {
 // Enhanced client initialization flow
 
 // Error handling for sockets updated
+
+// Enhanced collaborative editing module
