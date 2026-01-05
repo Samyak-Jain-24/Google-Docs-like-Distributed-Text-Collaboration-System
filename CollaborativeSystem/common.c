@@ -247,3 +247,5 @@ void trie_free(TrieNode* root) {
 }
 
 // Refactored common utility functions
+
+// Logging verbosity enhanced
